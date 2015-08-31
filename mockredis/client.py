@@ -1231,7 +1231,7 @@ class MockRedis(object):
         aggregate_func = self._aggregate_func(aggregate)
 
         if isinstance(keys, dict):
-            for key, score in keys:
+            for key, score in keys.iteritems():
                 set_memebers = self.smembers(key)
                 for member in set_memebers:
                     if member in union:
