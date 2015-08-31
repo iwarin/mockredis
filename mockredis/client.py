@@ -1230,25 +1230,16 @@ class MockRedis(object):
         union = SortedSet()
         aggregate_func = self._aggregate_func(aggregate)
 
-        if isinstance(keys, dict):
-            for key, score in keys.iteritems():
-                set_memebers = self.smembers(key)
-                for member in set_memebers:
-                    if member in union:
-                        union[member] = aggregate_func(union[member], score)
-                    else:
-                        union[member] = score
-        else:
-            for key in keys:
-                zset = self._get_zset(key, "ZUNIONSTORE")
-                if not zset:
-                    continue
-    
-                for score, member in zset:
-                    if member in union:
-                        union[member] = aggregate_func(union[member], score)
-                    else:
-                        union[member] = score
+        for key in keys:
+            zset = self._get_zset(key, "ZUNIONSTORE")
+            if not zset:
+                continue
+
+            for score, member in zset:
+                if member in union:
+                    union[member] = aggregate_func(union[member], score)
+                else:
+                    union[member] = score
 
         # always override existing keys
         self.redis[self._encode(dest)] = union
@@ -1404,6 +1395,17 @@ class MockRedis(object):
                 return self.redis.setdefault(key, default)
             else:
                 return self.redis.get(key, default if return_default else None)
+        if type_ == b'zset' and self.type(key) == b'set':
+            # ask for a zset but given a set key should return default sorted
+            # set with weight 1
+            if create:
+                _set = self.redis.setdefault(key, default)
+            else:
+                _set = self.redis.get(key, default if return_default else None)
+            sorted_set = SortedSet()
+            for item in _set:
+                sorted_set[item] = 1
+            return sorted_set
 
         raise TypeError("{} requires a {}".format(operation, type_))
 
