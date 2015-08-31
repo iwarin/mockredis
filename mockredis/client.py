@@ -1230,16 +1230,25 @@ class MockRedis(object):
         union = SortedSet()
         aggregate_func = self._aggregate_func(aggregate)
 
-        for key in keys:
-            zset = self._get_zset(key, "ZUNIONSTORE")
-            if not zset:
-                continue
-
-            for score, member in zset:
-                if member in union:
-                    union[member] = aggregate_func(union[member], score)
-                else:
-                    union[member] = score
+        if isinstance(keys, dict):
+            for key, score in keys:
+                set_memebers = self.smembers(key)
+                for member in set_memebers:
+                    if member in union:
+                        union[member] = aggregate_func(union[member], score)
+                    else:
+                        union[member] = score
+        else:
+            for key in keys:
+                zset = self._get_zset(key, "ZUNIONSTORE")
+                if not zset:
+                    continue
+    
+                for score, member in zset:
+                    if member in union:
+                        union[member] = aggregate_func(union[member], score)
+                    else:
+                        union[member] = score
 
         # always override existing keys
         self.redis[self._encode(dest)] = union
