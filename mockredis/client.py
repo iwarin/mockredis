@@ -1229,13 +1229,15 @@ class MockRedis(object):
     def zunionstore(self, dest, keys, aggregate=None):
         union = SortedSet()
         aggregate_func = self._aggregate_func(aggregate)
-
+        is_dict_key = isinstance(keys, dict)
         for key in keys:
             zset = self._get_zset(key, "ZUNIONSTORE")
             if not zset:
                 continue
 
             for score, member in zset:
+                if is_dict_key:
+                    score = keys[key]
                 if member in union:
                     union[member] = aggregate_func(union[member], score)
                 else:
