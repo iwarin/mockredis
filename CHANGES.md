@@ -1,3 +1,17 @@
+Version 2.9.3
+ - Support for `from_url`
+ - Going to remove develop and use master following github flow model.
+ 
+Version 2.9.2
+ - Fixed the versioning issue.
+
+Version 2.9.1
+ - Support for `transaction`
+ - Fix `do_expire` method in Python 3  
+ 
+Version 2.9.0.12
+ - Support: `dbsize`
+
 Version 2.9.0.11
  - Support: `scan_iter`, `sscan_iter`, `zscan_iter`, `hscan_iter`
 

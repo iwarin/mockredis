@@ -1,5 +1,6 @@
 from __future__ import division
 from collections import defaultdict
+from copy import deepcopy
 from itertools import chain
 from datetime import datetime, timedelta
 from hashlib import sha1
@@ -8,10 +9,11 @@ from random import choice, sample
 import re
 import sys
 import time
+import fnmatch
 
 from mockredis.clock import SystemClock
 from mockredis.lock import MockRedisLock
-from mockredis.exceptions import RedisError, ResponseError
+from mockredis.exceptions import RedisError, ResponseError, WatchError
 from mockredis.pipeline import MockRedisPipeline
 from mockredis.script import Script
 from mockredis.sortedset import SortedSet
@@ -51,11 +53,16 @@ class MockRedis(object):
         self.blocking_sleep_interval = blocking_sleep_interval
         # The 'Redis' store
         self.redis = defaultdict(dict)
+        self.redis_config = defaultdict(dict)
         self.timeouts = defaultdict(dict)
         # The 'PubSub' store
         self.pubsub = defaultdict(list)
         # Dictionary from script to sha ''Script''
         self.shas = dict()
+
+    @classmethod
+    def from_url(cls, url, db=None, **kwargs):
+        return cls(**kwargs)
 
     # Connection Functions #
 
@@ -74,6 +81,30 @@ class MockRedis(object):
     def pipeline(self, transaction=True, shard_hint=None):
         """Emulate a redis-python pipeline."""
         return MockRedisPipeline(self, transaction, shard_hint)
+
+    def transaction(self, func, *watches, **kwargs):
+        """
+        Convenience method for executing the callable `func` as a transaction
+        while watching all keys specified in `watches`. The 'func' callable
+        should expect a single argument which is a Pipeline object.
+
+        Copied directly from redis-py.
+        """
+        shard_hint = kwargs.pop('shard_hint', None)
+        value_from_callable = kwargs.pop('value_from_callable', False)
+        watch_delay = kwargs.pop('watch_delay', None)
+        with self.pipeline(True, shard_hint) as pipe:
+            while 1:
+                try:
+                    if watches:
+                        pipe.watch(*watches)
+                    func_value = func(pipe)
+                    exec_value = pipe.execute()
+                    return func_value if value_from_callable else exec_value
+                except WatchError:
+                    if watch_delay is not None and watch_delay > 0:
+                        time.sleep(watch_delay)
+                    continue
 
     def watch(self, *argv, **kwargs):
         """
@@ -122,13 +153,20 @@ class MockRedis(object):
 
     def keys(self, pattern='*'):
         """Emulate keys."""
-        # Make a regex out of pattern. The only special matching character we look for is '*'
-        regex = re.compile(b'^' + re.escape(self._encode(pattern)).replace(b'\\*', b'.*') + b'$')
+        # making sure the pattern is unicode/str.
+        try:
+            pattern = pattern.decode('utf-8')
+            # This throws an AttributeError in python 3, or an
+            # UnicodeEncodeError in python 2
+        except (AttributeError, UnicodeEncodeError):
+            pass
+
+        # Make regex out of glob styled pattern.
+        regex = fnmatch.translate(pattern)
+        regex = re.compile(re.sub(r'(^|[^\\])\.', r'\1[^/]', regex))
 
         # Find every key that matches the pattern
-        result = [key for key in self.redis.keys() if regex.match(key)]
-
-        return result
+        return [key for key in self.redis.keys() if regex.match(key.decode('utf-8'))]
 
     def delete(self, *keys):
         """Emulate delete."""
@@ -221,7 +259,9 @@ class MockRedis(object):
         """
         Expire objects assuming now == time
         """
-        for key, value in self.timeouts.items():
+        # Deep copy to avoid RuntimeError: dictionary changed size during iteration
+        _timeouts = deepcopy(self.timeouts)
+        for key, value in _timeouts.items():
             if value - self.clock.now() < timedelta(0):
                 del self.timeouts[key]
                 # removing the expired key
@@ -246,6 +286,9 @@ class MockRedis(object):
             self.redis[new_key] = self.redis.pop(old_key)
             return True
         return False
+
+    def dbsize(self):
+        return len(self.redis.keys())
 
     # String Functions #
 
@@ -648,7 +691,11 @@ class MockRedis(object):
         # Creates the list at this key if it doesn't exist, and appends args to its beginning
         args_reversed = [self._encode(arg) for arg in args]
         args_reversed.reverse()
-        self.redis[self._encode(key)] = args_reversed + redis_list
+        updated_list = args_reversed + redis_list
+        self.redis[self._encode(key)] = updated_list
+
+        # Return the length of the list after the push operation
+        return len(updated_list)
 
     def rpop(self, key):
         """Emulate lpop."""
@@ -672,6 +719,9 @@ class MockRedis(object):
 
         # Creates the list at this key if it doesn't exist, and appends args to it
         redis_list.extend(map(self._encode, args))
+
+        # Return the length of the list after the push operation
+        return len(redis_list)
 
     def lrem(self, key, value, count=0):
         """Emulate lrem."""
@@ -1356,6 +1406,27 @@ class MockRedis(object):
 
         return response
 
+    # Config Set/Get commands #
+
+    def config_set(self, name, value):
+        """
+        Set a configuration parameter.
+        """
+        self.redis_config[name] = value
+
+    def config_get(self, pattern='*'):
+        """
+        Get one or more configuration parameters.
+        """
+        result = {}
+        for name, value in self.redis_config.items():
+            if fnmatch.fnmatch(name, pattern):
+                try:
+                    result[name] = int(value)
+                except ValueError:
+                    result[name] = value
+        return result
+
     # PubSub commands #
 
     def publish(self, channel, message):
@@ -1511,6 +1582,8 @@ def mock_redis_client(**kwargs):
     """
     return MockRedis()
 
+mock_redis_client.from_url = mock_redis_client
+
 
 def mock_strict_redis_client(**kwargs):
     """
@@ -1519,3 +1592,5 @@ def mock_strict_redis_client(**kwargs):
     instead of a StrictRedis object.
     """
     return MockRedis(strict=True)
+
+mock_strict_redis_client.from_url = mock_strict_redis_client

@@ -6,13 +6,13 @@ python:
 - '3.4'
 - pypy
 - pypy3
-install: pip install . --use-mirrors
+install: pip install .
 script: python setup.py nosetests
 deploy:
   provider: pypi
-  user: jessemyers
+  user: github-ll
   password:
-    secure: f7wqGCuSP6dJZ7GwdpQwMc9J0GU8oCK8tydUnvgLNass0U57Eg+PaQURPWxg0T1f5nYACzfche3YHTFeXtk1x7HV6WYWYddin/gv94m7u9+ZQpsrygGizv7eO3lU/vR3K86GrLdTR3z7ii50XDlM0W8XyqHDX1+GGHPWFGLxOHo=
+    secure: WZNNslmr6ELiasA6IhO9QDQ/g7758WjezVLqC3Ebo3EgAsUOFeCvtqODf3U8czz4UxORrVL7xWN/lUEOCG/ImDoXa9W27h8kl3D0pP9s8FDNngZspB5c3xhZhQesiqB6n8Fyi2dLic9QYUUIgquo2w+w/r5rRHvplI9OVbIGuVM=
   on:
     tags: true
     repo: locationlabs/mockredis
